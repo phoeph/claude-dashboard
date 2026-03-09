@@ -2,8 +2,6 @@
 
 Claude Code 的 Agent Teams 监控和 Session 历史查看工具。
 
-![Dashboard Preview](https://raw.githubusercontent.com/phoeph/claude-dashboard/main/docs/screenshot.png)
-
 ## 功能特性
 
 - **Agent Teams 监控**: 实时查看所有 Agent Teams 的状态、成员、消息流
@@ -12,6 +10,23 @@ Claude Code 的 Agent Teams 监控和 Session 历史查看工具。
 - **实时推送**: SSE 连接，文件变化时自动刷新界面
 - **暗色主题**: 科技感暗色界面，霓虹色强调
 - **设置页面**: 配置 Claude 默认工作目录
+
+## 界面预览
+
+### Teams 监控页面
+实时查看所有 Agent Teams 的状态、成员信息和任务进度。
+
+![Teams Page](docs/assets/teams-page.png)
+
+### Session History 页面
+按日期分组浏览历史会话，支持搜索、筛选和查看会话统计。
+
+![Session History](docs/assets/session-history.png)
+
+### Session 详情弹窗
+查看单个会话的完整对话记录，支持按类型和时间筛选消息。
+
+![Session Details](docs/assets/session-details.png)
 
 ## 快速开始
 
