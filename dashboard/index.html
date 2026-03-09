@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Dashboard App - Load FIRST to register component -->
+    <script src="/dashboard/app.js"></script>
+    <!-- Alpine.js - Load after app.js so component is already registered -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/dashboard/style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#1e293b',
+                            900: '#0f172a',
+                            950: '#020617',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen" x-data="dashboardApp()" x-init="init()">
+    <!-- Alpine.js 错误提示 -->
+    <script>
+        // 检查 Alpine.js 是否在 5 秒内加载成功
+        setTimeout(function() {
+            if (typeof Alpine === 'undefined') {
+                document.body.innerHTML = '<div style="padding: 40px; text-align: center; color: #f43f5e;">' +
+                    '<h1>Loading Error</h1>' +
+                    '<p>Alpine.js failed to load. Please check your internet connection.</p>' +
+                    '<p style="color: #64748b; margin-top: 20px;">Try refreshing the page.</p>' +
+                    '</div>';
+            }
+        }, 5000);
+    </script>
+    <!-- 顶部栏 -->
+    <header class="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <i data-lucide="layout-dashboard" class="w-5 h-5 text-white"></i>
+            </div>
+            <h1 class="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                Claude Dashboard
+            </h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- SSE 状态指示器 -->
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700"
+                 :class="{ 'border-green-500/50 bg-green-500/10': sseConnected, 'border-red-500/50 bg-red-500/10': !sseConnected }">
+                <span class="w-2 h-2 rounded-full animate-pulse"
+                      :class="sseConnected ? 'bg-green-400' : 'bg-red-400'"></span>
+                <span class="text-xs font-medium" x-text="sseConnected ? '已连接' : '未连接'"></span>
+            </div>
+            <button @click="toggleTheme()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors">
+                <i data-lucide="moon" class="w-5 h-5 text-slate-400"></i>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex h-[calc(100vh-64px)]">
+        <!-- 侧边栏 -->
+        <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+            <nav class="p-4 space-y-2">
+                <button @click="currentView = 'teams'"
+                        :class="currentView === 'teams' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'"
+                        class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200">
+                    <i data-lucide="users" class="w-5 h-5"></i>
+                    <span class="font-medium">Teams</span>
+                </button>
+                <button @click="currentView = 'sessions'"
+                        :class="currentView === 'sessions' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'"
+                        class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200">
+                    <i data-lucide="message-square" class="w-5 h-5"></i>
+                    <span class="font-medium">Session History</span>
+                </button>
+                <button @click="currentView = 'settings'"
+                        :class="currentView === 'settings' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'"
+                        class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                    <span class="font-medium">设置</span>
+                </button>
+            </nav>
+
+            <!-- 统计信息 -->
+            <div class="mt-auto p-4 border-t border-slate-800">
+                <div class="space-y-3">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-400">活跃团队</span>
+                        <span class="font-medium text-indigo-400" x-text="teams.length"></span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-400">今日消息</span>
+                        <span class="font-medium text-green-400" x-text="todayMessageCount"></span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-400">进行中任务</span>
+                        <span class="font-medium text-amber-400" x-text="activeTaskCount"></span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区域 -->
+        <main class="flex-1 overflow-hidden bg-slate-950">
+            <!-- Teams 监控页面 -->
+            <div x-show="currentView === 'teams'" class="h-full overflow-y-auto p-6" x-cloak>
+                <div class="max-w-7xl mx-auto space-y-6">
+                    <!-- 页面标题 -->
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-bold text-slate-100">Teams 监控</h2>
+                        <button @click="refreshTeams()" class="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
+                            <i data-lucide="refresh-cw" class="w-4 h-4" :class="loading && 'animate-spin'"></i>
+                            <span class="text-sm">刷新</span>
+                        </button>
+                    </div>
+
+                    <!-- 团队卡片网格 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <template x-for="team in teams" :key="team.name">
+                            <div @click="selectTeam(team.name)"
+                                 :class="selectedTeam === team.name ? 'ring-2 ring-indigo-500 bg-slate-800' : 'bg-slate-900 hover:bg-slate-850'"
+                                 class="p-5 rounded-2xl border border-slate-800 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-0.5">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center"
+                                             :class="getTeamGradient(team.name)">
+                                            <i data-lucide="users" class="w-6 h-6 text-white"></i>
+                                        </div>
+                                        <div>
+                                            <h3 class="font-bold text-slate-100" x-text="team.name"></h3>
+                                            <p class="text-sm text-slate-500" x-text="team.project || 'No project'"></p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-between text-sm">
+                                    <div class="flex items-center gap-2 text-slate-400">
+                                        <i data-lucide="user" class="w-4 h-4"></i>
+                                        <span x-text="(team.members || []).length + ' 成员'"></span>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-slate-400">
+                                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                                        <span x-text="getTeamMessageCount(team.name) + ' 消息'"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 选中团队的详细信息 -->
+                    <div x-show="selectedTeam" class="grid grid-cols-1 lg:grid-cols-2 gap-6" x-cloak>
+                        <!-- 实时消息流 -->
+                        <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                        <i data-lucide="messages-square" class="w-4 h-4 text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-100" x-text="selectedTeam + ' 群聊'"></h3>
+                                        <p class="text-xs text-slate-400" x-text="currentMessages.length + ' 条消息'"></p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                                    <span class="text-xs text-slate-400">实时</span>
+                                </div>
+                            </div>
+                            <!-- Agent 过滤标签 -->
+                            <div class="px-4 py-2 border-b border-slate-800 overflow-x-auto">
+                                <div class="flex gap-2 items-center">
+                                    <button @click="messageFilterAgent = null"
+                                            :class="messageFilterAgent === null ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                            class="px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors">
+                                        全部
+                                    </button>
+                                    <template x-for="agent in teamAgents" :key="agent">
+                                        <button @click="messageFilterAgent = agent"
+                                                :class="messageFilterAgent === agent ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                                class="px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5">
+                                            <div class="w-2 h-2 rounded-full"
+                                                 :style="'background-color: var(--agent-color, #6366f1)'"></div>
+                                            <span x-text="agent"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="h-80 overflow-y-auto p-4 space-y-4" id="message-stream" x-ref="messageStream">
+                                <template x-for="(msg, index) in currentMessages" :key="index">
+                                    <div class="message-item">
+                                        <!-- 时间分隔线 - 如果4小时以上没有消息则显示时间 -->
+                                        <div x-show="index === 0 || (new Date(msg.timestamp) - new Date(currentMessages[index-1].timestamp)) > 3600000"
+                                             class="text-center my-4">
+                                            <span class="text-xs text-slate-500 bg-slate-800/50 px-3 py-1 rounded-full"
+                                                  x-text="formatDateTime(msg.timestamp)"></span>
+                                        </div>
+
+                                        <!-- 消息行 - 群聊样式 -->
+                                        <div class="flex gap-3"
+                                             :class="msg.from === 'user' || msg.from === 'team-lead' ? 'flex-row-reverse' : ''">
+                                            <!-- 头像 -->
+                                            <div class="flex-shrink-0">
+                                                <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                                                     :class="getAgentBadgeClass(msg.from)">
+                                                    <span x-text="getAgentInitial(msg.from)"></span>
+                                                </div>
+                                            </div>
+
+                                            <!-- 消息内容区域 -->
+                                            <div class="flex flex-col max-w-[75%]"
+                                                 :class="msg.from === 'user' || msg.from === 'team-lead' ? 'items-end' : 'items-start'">
+                                                <!-- 角色名称和收件人信息 -->
+                                                <div class="flex items-center gap-2 mb-1 px-1">
+                                                    <span class="text-xs font-medium"
+                                                          :class="msg.from === 'team-lead' ? 'text-indigo-400' : 'text-slate-400'"
+                                                          x-text="msg.from"></span>
+                                                    <!-- 显示收件人 -->
+                                                    <span x-show="msg._inboxOwner && msg._inboxOwner !== msg.from"
+                                                          class="text-[10px] text-slate-500">
+                                                        → <span x-text="msg._inboxOwner"></span>
+                                                    </span>
+                                                </div>
+                                                <!-- 消息气泡 -->
+                                                <div class="relative px-4 py-2.5 rounded-2xl text-sm break-words"
+                                                     :class="[
+                                                         msg.from === 'user' || msg.from === 'team-lead'
+                                                             ? 'bg-indigo-600 text-white rounded-tr-sm'
+                                                             : 'bg-slate-700 text-slate-100 rounded-tl-sm',
+                                                         isPlainTextMessage(msg) ? 'max-h-60 overflow-y-auto custom-scrollbar' : ''
+                                                     ]">
+                                                    <!-- 消息内容 - 使用 x-html 直接渲染 -->
+                                                    <div x-html="renderMessageContent(msg)"></div>
+                                                </div>
+                                                <!-- 时间戳 -->
+                                                <span class="text-xs text-slate-500 mt-1 px-1"
+                                                      x-text="formatTime(msg.timestamp)"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div x-show="currentMessages.length === 0" class="text-center py-12 text-slate-500">
+                                    <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3 opacity-50"></i>
+                                    <p>暂无消息</p>
+                                    <p class="text-xs mt-2">点击 Team 卡片查看对话</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 任务列表 -->
+                        <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                                <h3 class="font-bold text-slate-100 flex items-center gap-2">
+                                    <i data-lucide="check-square" class="w-5 h-5 text-indigo-400"></i>
+                                    任务分配
+                                </h3>
+                                <span class="text-xs text-slate-400" x-text="currentTasks.length + ' 个任务'"></span>
+                            </div>
+                            <div class="h-80 overflow-y-auto p-4 space-y-3">
+                                <template x-for="task in currentTasks" :key="task.id">
+                                    <div @click="openTaskDetail(task)"
+                                         class="p-4 rounded-xl bg-slate-850 border border-slate-800/50 cursor-pointer hover:border-indigo-500/50 hover:bg-slate-800 transition-all"
+                                         :class="selectedTask?.id === task.id ? 'border-indigo-500 bg-slate-800' : ''">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <h4 class="font-medium text-slate-200 flex-1"
+                                                x-text="task.title || ('任务 #' + task.id)"></h4>
+                                            <span class="text-xs text-slate-400" x-text="task.subject"></span>
+                                        </div>
+                                        <!-- 任务描述预览 -->
+                                        <div class="text-sm text-slate-400 line-clamp-2"
+                                             x-text="getTaskPreview(task.description)"></div>
+                                        <!-- 负责人 -->
+                                        <div x-show="task.assignee" class="mt-2 flex items-center gap-2">
+                                            <div class="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-xs">
+                                                <span x-text="getAgentInitial(task.assignee)"></span>
+                                            </div>
+                                            <span class="text-xs text-slate-400" x-text="task.assignee"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div x-show="currentTasks.length === 0" class="text-center py-12 text-slate-500">
+                                    <i data-lucide="clipboard-list" class="w-12 h-12 mx-auto mb-3 opacity-50"></i>
+                                    <p>暂无任务</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session History 页面 -->
+            <div x-show="currentView === 'sessions'" class="h-full overflow-y-auto p-6" x-cloak>
+                <div class="max-w-5xl mx-auto space-y-6">
+                    <!-- 页面标题和搜索 -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <h2 class="text-2xl font-bold text-slate-100">Session History</h2>
+                        <div class="relative">
+                            <i data-lucide="search" class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+                            <input type="text" x-model="sessionSearch"
+                                   placeholder="搜索会话..."
+                                   class="w-full sm:w-80 pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        </div>
+                    </div>
+
+                    <!-- 日期分组 -->
+                    <template x-for="group in groupedSessions" :key="group.date">
+                        <div class="space-y-3">
+                            <h3 class="text-sm font-medium text-slate-500 sticky top-0 bg-slate-950 py-2" x-text="formatDate(group.date)"></h3>
+                            <div class="grid grid-cols-1 gap-3">
+                                <template x-for="session in group.sessions" :key="session.sessionId">
+                                    <div @click="openSessionDetail(session)"
+                                         class="p-5 bg-slate-900 rounded-2xl border border-slate-800 hover:border-slate-700 hover:bg-slate-850 cursor-pointer transition-all duration-200">
+                                        <div class="flex items-start justify-between">
+                                            <div class="flex items-center gap-4">
+                                                <div class="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center">
+                                                    <i data-lucide="folder-open" class="w-6 h-6 text-indigo-400"></i>
+                                                </div>
+                                                <div class="min-w-0">
+                                                    <h4 class="font-medium text-slate-200 mb-1 truncate" x-text="session.project || 'Unknown Project'"></h4>
+                                                    <div class="flex items-center gap-2 text-xs text-slate-400">
+                                                        <span class="font-mono truncate" x-text="session.sessionId"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="text-right space-y-1 shrink-0 ml-4">
+                                                <div class="flex items-center justify-end gap-1 text-xs">
+                                                    <i data-lucide="play-circle" class="w-3 h-3 text-green-400"></i>
+                                                    <span class="text-slate-400">开始</span>
+                                                    <span class="text-slate-300" x-text="formatTime(session.firstMessage)"></span>
+                                                </div>
+                                                <div class="flex items-center justify-end gap-1 text-xs">
+                                                    <i data-lucide="pause-circle" class="w-3 h-3 text-amber-400"></i>
+                                                    <span class="text-slate-400">结束</span>
+                                                    <span class="text-slate-300" x-text="formatTime(session.lastMessage)"></span>
+                                                </div>
+                                                <div class="flex items-center justify-end gap-1 text-xs pt-1 border-t border-slate-800">
+                                                    <i data-lucide="message-square" class="w-3 h-3 text-blue-400"></i>
+                                                    <span class="text-slate-500" x-text="session.messageCount + ' 条消息'"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- 空状态 -->
+                    <div x-show="filteredSessions.length === 0" class="text-center py-16">
+                        <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-slate-900 flex items-center justify-center">
+                            <i data-lucide="search-x" class="w-10 h-10 text-slate-400"></i>
+                        </div>
+                        <h3 class="text-lg font-medium text-slate-400 mb-1">未找到会话</h3>
+                        <p class="text-slate-400">尝试调整搜索关键词</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设置页面 -->
+            <div x-show="currentView === 'settings'" class="h-full overflow-y-auto p-6" x-cloak>
+                <div class="max-w-2xl mx-auto">
+                    <h2 class="text-2xl font-bold text-slate-100 mb-6 flex items-center gap-3">
+                        <i data-lucide="settings" class="w-6 h-6 text-indigo-400"></i>
+                        设置
+                    </h2>
+
+                    <!-- 通用设置卡片 -->
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden mb-6">
+                        <div class="px-6 py-4 border-b border-slate-800">
+                            <h3 class="font-bold text-slate-100 flex items-center gap-2">
+                                <i data-lucide="folder" class="w-5 h-5 text-indigo-400"></i>
+                                默认工作目录
+                            </h3>
+                            <p class="text-sm text-slate-400 mt-1">Claude 启动时使用的默认工作目录</p>
+                        </div>
+
+                        <div class="p-6 space-y-4">
+                            <!-- 当前设置显示 -->
+                            <div x-show="config.defaultCwd" class="p-4 bg-slate-850 rounded-xl border border-slate-800">
+                                <div class="text-xs text-slate-400 mb-1">当前设置</div>
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="folder-open" class="w-4 h-4 text-indigo-400"></i>
+                                    <code class="text-sm text-slate-200 font-mono" x-text="config.defaultCwd"></code>
+                                </div>
+                                <div class="text-xs text-slate-500 mt-2" x-show="config.updatedAt">
+                                    上次更新: <span x-text="formatTime(config.updatedAt)"></span>
+                                </div>
+                            </div>
+
+                            <!-- 未设置提示 -->
+                            <div x-show="!config.defaultCwd" class="p-4 bg-slate-850 rounded-xl border border-slate-800">
+                                <div class="flex items-center gap-2 text-amber-400">
+                                    <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                                    <span class="text-sm">尚未设置默认目录</span>
+                                </div>
+                            </div>
+
+                            <!-- 设置表单 -->
+                            <div class="space-y-3">
+                                <label class="block text-sm font-medium text-slate-300">设置新目录</label>
+                                <div class="flex gap-3">
+                                    <input type="text" x-model="newCwd"
+                                           placeholder="例如: /Users/username/projects"
+                                           class="flex-1 bg-slate-950 border border-slate-700 text-slate-200 text-sm rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-slate-600">
+                                    <button @click="selectDirectory()"
+                                            class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-sm font-medium flex items-center gap-2">
+                                        <i data-lucide="folder-open" class="w-4 h-4"></i>
+                                        浏览
+                                    </button>
+                                </div>
+                                <p class="text-xs text-slate-500">输入绝对路径，或点击浏览选择目录</p>
+                            </div>
+
+                            <!-- 操作按钮 -->
+                            <div class="flex gap-3 pt-2">
+                                <button @click="saveConfig()"
+                                        :disabled="!newCwd || saving"
+                                        class="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2">
+                                    <i data-lucide="save" class="w-4 h-4" x-show="!saving"></i>
+                                    <i data-lucide="loader-2" class="w-4 h-4 animate-spin" x-show="saving"></i>
+                                    <span x-text="saving ? '保存中...' : '保存设置'"></span>
+                                </button>
+                                <button @click="resetConfig()"
+                                        class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-sm font-medium">
+                                    重置
+                                </button>
+                            </div>
+
+                            <!-- 提示信息 -->
+                            <div x-show="configMessage" class="mt-4 p-3 rounded-lg text-sm"
+                                 :class="configSuccess ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'"
+                                 x-text="configMessage">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 关于卡片 -->
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-slate-800">
+                            <h3 class="font-bold text-slate-100 flex items-center gap-2">
+                                <i data-lucide="info" class="w-5 h-5 text-indigo-400"></i>
+                                关于
+                            </h3>
+                        </div>
+                        <div class="p-6 space-y-2 text-sm text-slate-400">
+                            <div class="flex justify-between">
+                                <span>Claude Dashboard</span>
+                                <span class="text-slate-300">v1.0.0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>数据目录</span>
+                                <code class="text-xs text-slate-500 font-mono">~/.claude</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 任务详情弹窗 -->
+    <div x-show="showTaskModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak>
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showTaskModal = false"></div>
+        <div class="relative w-full max-w-3xl max-h-[90vh] bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden flex flex-col">
+            <!-- 弹窗头部 -->
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-100" x-text="selectedTask?.title || ('任务 #' + selectedTask?.id)"></h3>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span x-show="selectedTask?.assignee" class="text-xs text-slate-400">
+                            分配给: <span class="text-slate-300" x-text="selectedTask?.assignee"></span>
+                        </span>
+                    </div>
+                </div>
+                <button @click="showTaskModal = false" class="p-2 hover:bg-slate-800 rounded-lg transition-colors">
+                    <i data-lucide="x" class="w-5 h-5 text-slate-400"></i>
+                </button>
+            </div>
+            <!-- 弹窗内容 -->
+            <div class="p-6 overflow-y-auto flex-1">
+                <div class="prose prose-invert prose-sm max-w-none"
+                     x-html="renderMarkdownFull(selectedTask?.description || '')">
+                </div>
+            </div>
+            <!-- 弹窗底部 -->
+            <div class="px-6 py-4 border-t border-slate-800 bg-slate-850 flex justify-end shrink-0">
+                <button @click="showTaskModal = false" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-sm">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 会话详情弹窗 -->
+    <div x-show="showSessionModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak>
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showSessionModal = false; sessionRecordFilter = 'all'; sessionTimeFilter = 'all'"></div>
+        <div class="relative w-full max-w-3xl max-h-[90vh] bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
+            <!-- 弹窗头部 -->
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex-1 min-w-0">
+                    <h3 class="text-lg font-bold text-slate-100 truncate" x-text="selectedSession?.project || 'Session Detail'"></h3>
+                    <!-- 时间信息 -->
+                    <div class="flex flex-wrap items-center gap-4 mt-2 text-xs">
+                        <div class="flex items-center gap-1">
+                            <i data-lucide="play-circle" class="w-3 h-3 text-green-400"></i>
+                            <span class="text-slate-400">开始:</span>
+                            <span class="text-slate-300" x-text="selectedSession ? formatTime(selectedSession.firstMessage) : ''"></span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <i data-lucide="pause-circle" class="w-3 h-3 text-amber-400"></i>
+                            <span class="text-slate-400">结束:</span>
+                            <span class="text-slate-300" x-text="selectedSession ? formatTime(selectedSession.lastMessage) : ''"></span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <i data-lucide="clock" class="w-3 h-3 text-blue-400"></i>
+                            <span class="text-slate-400">时长:</span>
+                            <span class="text-slate-300" x-text="selectedSession ? getSessionDuration(selectedSession.firstMessage, selectedSession.lastMessage) : ''"></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-2">
+                        <span class="text-xs text-slate-400">Session ID:</span>
+                        <code class="text-xs font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded truncate max-w-xs" x-text="selectedSession?.sessionId"></code>
+                    </div>
+                </div>
+                <button @click="showSessionModal = false; sessionRecordFilter = 'all'; sessionTimeFilter = 'all'" class="p-2 hover:bg-slate-800 rounded-lg transition-colors">
+                    <i data-lucide="x" class="w-5 h-5 text-slate-400"></i>
+                </button>
+            </div>
+            <!-- 弹窗内容 -->
+            <div class="p-6 overflow-y-auto max-h-[60vh] space-y-4">
+                <!-- 筛选栏 -->
+                <div x-show="!selectedSessionLoading" class="flex flex-wrap items-center gap-3 p-3 bg-slate-850 rounded-xl border border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="filter" class="w-4 h-4 text-slate-400"></i>
+                        <span class="text-sm text-slate-400">筛选:</span>
+                    </div>
+
+                    <!-- 类型筛选 -->
+                    <select x-model="sessionRecordFilter" class="bg-slate-900 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        <option value="all">全部类型</option>
+                        <option value="user">👤 用户消息</option>
+                        <option value="assistant">🤖 AI 回复</option>
+                        <option value="system">⚙️ 系统消息</option>
+                        <option value="tool">🔧 工具调用 (Tool Use/Result)</option>
+                        <option value="other">📦 其他</option>
+                    </select>
+
+                    <!-- 时间筛选 -->
+                    <select x-model="sessionTimeFilter" class="bg-slate-900 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        <option value="all">全部时间</option>
+                        <option value="hour">最近1小时</option>
+                        <option value="today">今天</option>
+                        <option value="yesterday">昨天</option>
+                        <option value="week">最近7天</option>
+                    </select>
+
+                    <!-- 结果计数 -->
+                    <span class="text-xs text-slate-500 ml-auto">
+                        显示 <span x-text="filteredSessionRecords.length" class="text-slate-300"></span> / <span x-text="selectedSessionRecords.length"></span> 条
+                    </span>
+
+                    <!-- 重置按钮 -->
+                    <button @click="sessionRecordFilter = 'all'; sessionTimeFilter = 'all'" class="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800 transition-colors">
+                        重置
+                    </button>
+                </div>
+
+                <!-- 加载状态 -->
+                <div x-show="selectedSessionLoading" class="text-center py-8">
+                    <div class="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                    <span class="text-slate-500 text-sm">加载中...</span>
+                </div>
+
+                <!-- 记录列表（虚拟滚动） -->
+                <div x-show="!selectedSessionLoading" class="relative" style="height: 60vh; overflow-y: auto;" @scroll="handleSessionScroll($event)">
+                    <!-- 滚动占位 -->
+                    <div :style="`height: ${sessionScrollHeight}px;`"></div>
+
+                    <!-- 可见记录 -->
+                    <div class="absolute top-0 left-0 right-0 space-y-3" :style="`transform: translateY(${sessionVisibleStart * sessionItemHeight}px);`">
+                        <template x-for="(record, index) in visibleSessionRecords" :key="sessionVisibleStart + index">
+                            <div class="p-4 rounded-xl bg-slate-850 border border-slate-800 hover:border-slate-700 transition-colors">
+                            <!-- 记录头部：类型和时间 -->
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-2">
+                                    <!-- 类型标签 -->
+                                    <span class="px-2 py-0.5 text-xs rounded-full font-medium"
+                                          :class="{
+                                              'bg-blue-500/20 text-blue-400': record.type === 'user',
+                                              'bg-purple-500/20 text-purple-400': record.type === 'assistant',
+                                              'bg-yellow-500/20 text-yellow-400': record.type === 'system',
+                                              'bg-slate-500/20 text-slate-400': !['user', 'assistant', 'system'].includes(record.type)
+                                          }"
+                                          x-text="record.type || 'unknown'">
+                                    </span>
+                                    <span x-show="record.subtype" class="text-xs text-slate-400" x-text="record.subtype"></span>
+                                    <span x-show="record.userType" class="text-xs text-slate-400" x-text="'(' + record.userType + ')'"></span>
+                                </div>
+                                <span class="text-xs text-slate-400 font-mono" x-text="formatTime(record.timestamp)"></span>
+                            </div>
+
+                            <!-- 用户消息内容（真正的用户消息，不是 tool_result） -->
+                            <div x-show="record.type === 'user' && (typeof record.message?.content === 'string' || typeof record.content === 'string')" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium text-blue-400">User</span>
+                                </div>
+                                <div class="pl-3 border-l-2 border-blue-500/30">
+                                    <p class="text-slate-300 text-sm whitespace-pre-wrap" x-text="record.message?.content || record.content || '(空消息)'"></p>
+                                </div>
+                            </div>
+
+                            <!-- Tool Result（被包装成 user 类型） -->
+                            <div x-show="record.type === 'tool' || (record.type === 'user' && Array.isArray(record.message?.content) && record.message.content.some(c => c.type === 'tool_result'))" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="check-circle" class="w-3 h-3 text-emerald-400"></i>
+                                    <span class="text-xs font-medium text-emerald-400">Tool Result</span>
+                                </div>
+                                <div class="pl-3 border-l-2 border-emerald-500/30">
+                                    <template x-for="(content, cidx) in record.message.content" :key="cidx">
+                                        <div>
+                                            <div x-show="content.type === 'tool_result'" class="mb-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                                                <div class="flex items-center gap-2 mb-2">
+                                                    <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center">
+                                                        <i data-lucide="check-circle" class="w-3 h-3 text-emerald-400"></i>
+                                                    </div>
+                                                    <div>
+                                                        <span class="text-xs font-bold text-emerald-400">Tool Result</span>
+                                                        <span class="text-xs text-slate-400 font-mono" x-text="content.tool_use_id"></span>
+                                                    </div>
+                                                </div>
+                                                <div class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                                                    <code x-text="typeof content.content === 'string' ? content.content : JSON.stringify(content.content, null, 2)"></code>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- AI 回复内容 -->
+                            <div x-show="record.type === 'assistant'" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium text-purple-400">Claude</span>
+                                    <span x-show="record.message?.model" class="text-xs text-slate-400" x-text="record.message.model"></span>
+                                </div>
+                                <div class="pl-3 border-l-2 border-purple-500/30 space-y-2">
+                                    <!-- 字符串类型 content -->
+                                    <template x-if="record.message?.content && typeof record.message.content === 'string'">
+                                        <p class="text-slate-300 text-sm whitespace-pre-wrap" x-text="record.message.content"></p>
+                                    </template>
+                                    <!-- 数组类型 content -->
+                                    <template x-if="record.message?.content && Array.isArray(record.message.content)">
+                                        <div>
+                                            <template x-for="(content, cidx) in record.message.content" :key="cidx">
+                                                <div>
+                                                    <!-- 思考过程 -->
+                                                    <div x-show="content.type === 'thinking'" class="mb-2">
+                                                        <div class="text-xs text-slate-500 mb-1">思考过程:</div>
+                                                        <div class="text-slate-400 text-sm italic bg-slate-900/50 p-2 rounded" x-text="content.thinking || '(思考内容)'"></div>
+                                                    </div>
+                                                    <!-- 文本回复 -->
+                                                    <div x-show="content.type === 'text'" class="text-slate-300 text-sm whitespace-pre-wrap" x-text="content.text || '(空)'"></div>
+                                                    <!-- 工具调用 (在 message.content 中) -->
+                                                    <div x-show="content.type === 'tool_use'" class="mb-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                                                        <div class="flex items-center gap-2 mb-2">
+                                                            <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center">
+                                                                <i data-lucide="hammer" class="w-3 h-3 text-emerald-400"></i>
+                                                            </div>
+                                                            <div class="flex-1">
+                                                                <div class="flex items-center gap-2">
+                                                                    <span class="text-xs font-bold text-emerald-400" x-text="content.name"></span>
+                                                                    <span class="text-xs text-slate-400 font-mono" x-text="content.id"></span>
+                                                                </div>
+                                                                <div class="text-xs text-slate-400">Tool Use</div>
+                                                            </div>
+                                                        </div>
+                                                        <pre class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto" x-text="JSON.stringify(content.input, null, 2)"></pre>
+                                                    </div>
+                                                    <!-- 工具结果 (在 message.content 中) -->
+                                                    <div x-show="content.type === 'tool_result'" class="mb-3 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                                                        <div class="flex items-center gap-2 mb-2">
+                                                            <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center">
+                                                                <i data-lucide="check-circle" class="w-3 h-3 text-emerald-400"></i>
+                                                            </div>
+                                                            <div>
+                                                                <span class="text-xs font-bold text-emerald-400">Tool Result</span>
+                                                                <span class="text-xs text-slate-400 font-mono" x-text="content.tool_use_id"></span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                                                            <code x-text="typeof content.content === 'string' ? content.content : JSON.stringify(content.content, null, 2)"></code>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <!-- 直接 content 字段 -->
+                                    <template x-if="record.content">
+                                        <p class="text-slate-300 text-sm whitespace-pre-wrap" x-text="record.content"></p>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- System 消息 -->
+                            <div x-show="record.type === 'system'" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium text-yellow-400">System</span>
+                                    <span x-show="record.level" class="text-xs text-slate-400" x-text="record.level"></span>
+                                    <span x-show="record.subtype" class="text-xs text-slate-400" x-text="record.subtype"></span>
+                                </div>
+                                <div class="pl-3 border-l-2 border-yellow-500/30">
+                                    <p class="text-slate-300 text-sm whitespace-pre-wrap" x-text="record.content || record.message?.content || '(空消息)'"></p>
+                                </div>
+                            </div>
+
+                            <!-- 工具调用 (tool_use) -->
+                            <div x-show="record.data?.type === 'tool_use'" class="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center">
+                                        <i data-lucide="hammer" class="w-3 h-3 text-emerald-400"></i>
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-sm font-bold text-emerald-400" x-text="record.data.name"></span>
+                                            <span class="text-xs text-slate-400 font-mono" x-text="record.data.id"></span>
+                                        </div>
+                                        <div class="text-xs text-slate-400">Tool Use</div>
+                                    </div>
+                                </div>
+                                <div class="pl-3 border-l-2 border-emerald-500/30">
+                                    <pre class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto" x-text="JSON.stringify(record.data.input, null, 2)"></pre>
+                                </div>
+                            </div>
+
+                            <!-- 工具结果 (tool_result) -->
+                            <div x-show="record.data?.type === 'tool_result'" class="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center">
+                                        <i data-lucide="check-circle" class="w-3 h-3 text-emerald-400"></i>
+                                    </div>
+                                    <div>
+                                        <span class="text-sm font-bold text-emerald-400">Tool Result</span>
+                                        <span class="text-xs text-slate-400 font-mono" x-text="record.data.tool_use_id"></span>
+                                    </div>
+                                </div>
+                                <div class="pl-3 border-l-2 border-emerald-500/30">
+                                    <div class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                                        <code x-text="typeof record.data.content === 'string' ? record.data.content : JSON.stringify(record.data.content, null, 2)"></code>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Progress 消息 -->
+                            <div x-show="record.type === 'progress'" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium text-slate-400">Progress</span>
+                                    <span x-show="record.data?.type" class="text-xs text-slate-400" x-text="record.data.type"></span>
+                                </div>
+                                <div x-show="record.data?.command" class="pl-3 border-l-2 border-slate-500/30">
+                                    <code class="text-xs text-slate-400 font-mono" x-text="record.data.command"></code>
+                                </div>
+                                <div x-show="record.data?.content" class="pl-3 border-l-2 border-slate-500/30">
+                                    <p class="text-xs text-slate-400" x-text="record.data.content"></p>
+                                </div>
+                            </div>
+
+                            <!-- 文件历史快照 -->
+                            <div x-show="record.type === 'file-history-snapshot'" class="space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="save" class="w-3 h-3 text-emerald-400"></i>
+                                    <span class="text-xs font-medium text-emerald-400">File Snapshot</span>
+                                </div>
+                                <div x-show="record.snapshot?.trackedFileBackups" class="pl-3 border-l-2 border-emerald-500/30">
+                                    <div class="text-xs text-slate-400">
+                                        <template x-for="(backup, filename) in record.snapshot.trackedFileBackups" :key="filename">
+                                            <div class="flex items-center gap-2 py-0.5">
+                                                <i data-lucide="file" class="w-3 h-3"></i>
+                                                <span x-text="filename"></span>
+                                                <span x-show="backup.version" class="text-slate-400" x-text="'v' + backup.version"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 其他/未知类型 - 尝试显示 content 或 data -->
+                            <div x-show="!['user', 'assistant', 'system', 'progress', 'file-history-snapshot'].includes(record.type) && !record.data?.type"
+                                 class="space-y-2">
+                                <!-- 尝试显示 content -->
+                                <div x-show="record.content" class="pl-3 border-l-2 border-slate-500/30">
+                                    <p class="text-slate-300 text-sm whitespace-pre-wrap" x-text="record.content"></p>
+                                </div>
+                                <!-- 尝试显示 data 内容 -->
+                                <div x-show="record.data && Object.keys(record.data).length > 0" class="pl-3 border-l-2 border-slate-500/30">
+                                    <pre class="text-xs text-slate-400 bg-slate-900/50 p-2 rounded overflow-x-auto" x-text="JSON.stringify(record.data, null, 2)"></pre>
+                                </div>
+                                <!-- 展开显示完整 JSON -->
+                                <details class="text-xs mt-2">
+                                    <summary class="text-slate-400 cursor-pointer hover:text-slate-300">查看完整数据</summary>
+                                    <pre class="mt-2 p-2 bg-slate-900/50 rounded text-slate-400 overflow-x-auto" x-text="JSON.stringify(record, null, 2)"></pre>
+                                </details>
+                            </div>
+
+                            <!-- UUID 和元数据 -->
+                            <div class="mt-2 pt-2 border-t border-slate-800/50 flex items-center gap-3 text-xs text-slate-400">
+                                <span class="font-mono" x-text="'uuid: ' + record.uuid"></span>
+                                <span x-show="record.gitBranch" x-text="'git: ' + record.gitBranch"></span>
+                            </div>
+                        </div>
+                    </template>
+                    </div>
+
+                    <!-- 空状态 - 无记录 -->
+                    <div x-show="!selectedSessionLoading && selectedSessionRecords.length === 0" class="absolute inset-0 flex flex-col items-center justify-center py-8">
+                        <i data-lucide="inbox" class="w-10 h-10 text-slate-400 mx-auto mb-2"></i>
+                        <p class="text-slate-400">暂无记录</p>
+                    </div>
+
+                    <!-- 空状态 - 筛选后无结果 -->
+                    <div x-show="!selectedSessionLoading && selectedSessionRecords.length > 0 && filteredSessionRecords.length === 0" class="absolute inset-0 flex flex-col items-center justify-center py-8">
+                        <i data-lucide="search-x" class="w-10 h-10 text-slate-400 mx-auto mb-2"></i>
+                        <p class="text-slate-400 mb-2">没有匹配筛选条件的记录</p>
+                        <button @click="sessionRecordFilter = 'all'; sessionTimeFilter = 'all'" class="text-sm text-indigo-400 hover:text-indigo-300">
+                            清除筛选条件
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- 弹窗底部 -->
+            <div class="px-6 py-4 border-t border-slate-800 bg-slate-850 flex justify-end gap-3">
+                <button @click="showSessionModal = false; sessionRecordFilter = 'all'; sessionTimeFilter = 'all'" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-sm">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="fixed bottom-6 right-6 z-50 space-y-2">
+        <template x-for="toast in toasts" :key="toast.id">
+            <div class="flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg animate-slide-in"
+                 :class="toast.type === 'error' ? 'bg-red-500/90 text-white' : 'bg-indigo-500/90 text-white'">
+                <i :data-lucide="toast.type === 'error' ? 'alert-circle' : 'check-circle'" class="w-5 h-5"></i>
+                <span class="text-sm font-medium" x-text="toast.message"></span>
+            </div>
+        </template>
+    </div>
+
+</body>
+</html>

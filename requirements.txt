@@ -1,0 +1,15 @@
+# Dashboard Backend Dependencies
+# 安装: pip install -r requirements.txt
+
+# Web Framework
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# SSE Support
+flask-sse>=1.0.0
+
+# File Watching
+watchdog>=3.0.0
+
+# Server
+gunicorn>=21.0.0

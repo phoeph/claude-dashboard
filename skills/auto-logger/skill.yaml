@@ -1,0 +1,13 @@
+name: auto-logger
+description: 自动记录所有会话到本地文件
+version: 1.0.0
+trigger:
+  # 拦截所有用户输入
+  user_message:
+    enabled: true
+  # 拦截所有 AI 回复
+  assistant_message:
+    enabled: true
+  # 会话开始时初始化
+  session_start:
+    enabled: true

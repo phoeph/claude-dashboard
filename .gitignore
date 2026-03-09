@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+
+# Test files (not needed for production)
+test-*.html
+test_*.py
+debug-*.html
+diagnose.html
+simple-test.html
+minimal-test.html
+test-browser.html
+test-dashboard.html
+test-render.html
+test-*.png
+final_screenshot.png
+
+# Claude data (should not be committed)
+.claude/
